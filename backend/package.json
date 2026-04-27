@@ -1,0 +1,13 @@
+{
+  "name": "student-dashboard-backend",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:server": "npm --prefix server install",
+    "start": "npm --prefix server start",
+    "dev": "kill-port 5000 && npm --prefix server run dev"
+  },
+  "devDependencies": {
+    "kill-port": "^2.0.1"
+  }
+}

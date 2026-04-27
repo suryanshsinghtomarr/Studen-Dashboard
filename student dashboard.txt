@@ -1,0 +1,5 @@
+student dashboard 
+
+mongodb user password=5eMeN8lixn8POnB8
+
+connection string (uri) =mongodb+srv://singhtomarsuryansh6_db_user:5eMeN8lixn8POnB8@cluster0.sd6wdpq.mongodb.net/?appName=Cluster0
