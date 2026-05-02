@@ -3,7 +3,7 @@ import { subjectPalette } from '../data/mockData.js'
 import { useAuth } from './AuthContext.jsx'
 
 const PlannerContext = createContext(null)
-const PLANNER_DATA_KEY = 'planner_data_by_user'
+const API_BASE_URL = 'https://student-dashboard-backend-scvs.onrender.com/api'
 
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -12,133 +12,248 @@ const toMinutes = (time) => {
   return hours * 60 + minutes
 }
 
-const getLoggedHours = (goal) =>
-  goal.loggedSessions.reduce((total, value) => total + Number(value), 0)
+const toLoggedHours = (goal) => {
+  if (typeof goal.loggedHours === 'number') {
+    return goal.loggedHours
+  }
 
-const emptyPlannerData = () => ({
-  timetableSlots: [],
-  goals: [],
-  tasks: [],
+  return (goal.loggedSessions || []).reduce(
+    (total, entry) => total + Number(entry.durationHours ?? entry),
+    0,
+  )
+}
+
+const normalizeSlot = (slot) => ({
+  ...slot,
+  id: slot._id || slot.id,
+  location: slot.location || '',
 })
 
-const getStoredPlannerMap = () => {
-  const raw = localStorage.getItem(PLANNER_DATA_KEY)
-  return raw ? JSON.parse(raw) : {}
-}
+const normalizeGoal = (goal) => ({
+  ...goal,
+  id: goal._id || goal.id,
+  loggedSessions: goal.loggedSessions || [],
+  loggedHours: toLoggedHours(goal),
+})
 
-const getPlannerDataForUser = (userId) => {
-  if (!userId) {
-    return emptyPlannerData()
+const normalizeTask = (task, overrides = {}) => {
+  const isCompleted = overrides.isCompleted ?? task.isCompleted ?? false
+  const status = overrides.status || task.status || (isCompleted ? 'done' : 'todo')
+  const priority = overrides.priority || task.priority || 'medium'
+
+  return {
+    ...task,
+    ...overrides,
+    id: task._id || task.id,
+    isCompleted,
+    status,
+    priority,
   }
-
-  const plannerMap = getStoredPlannerMap()
-  return plannerMap[userId] || emptyPlannerData()
-}
-
-const persistPlannerDataForUser = (userId, data) => {
-  if (!userId) {
-    return
-  }
-
-  const plannerMap = getStoredPlannerMap()
-  plannerMap[userId] = data
-  localStorage.setItem(PLANNER_DATA_KEY, JSON.stringify(plannerMap))
 }
 
 export function PlannerProvider({ children }) {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const [timetableSlots, setTimetableSlots] = useState([])
   const [goals, setGoals] = useState([])
   const [tasks, setTasks] = useState([])
 
-  useEffect(() => {
-    const userData = getPlannerDataForUser(user?.id)
-    setTimetableSlots(userData.timetableSlots)
-    setGoals(userData.goals)
-    setTasks(userData.tasks)
-  }, [user?.id])
-
-  useEffect(() => {
-    persistPlannerDataForUser(user?.id, {
-      timetableSlots,
-      goals,
-      tasks,
-    })
-  }, [user?.id, timetableSlots, goals, tasks])
-
-  const addSlot = (slot) => {
-    const next = { id: crypto.randomUUID(), ...slot }
-    setTimetableSlots((prev) => [...prev, next])
-  }
-
-  const updateSlot = (slotId, updates) => {
-    setTimetableSlots((prev) =>
-      prev.map((slot) => (slot.id === slotId ? { ...slot, ...updates } : slot)),
-    )
-  }
-
-  const deleteSlot = (slotId) => {
-    setTimetableSlots((prev) => prev.filter((slot) => slot.id !== slotId))
-  }
-
-  const addGoal = (subject, targetHours) => {
-    setGoals((prev) => [
-      {
-        id: crypto.randomUUID(),
-        subject,
-        targetHours: Number(targetHours),
-        loggedSessions: [],
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
       },
-      ...prev,
-    ])
-  }
+    })
 
-  const logGoalSession = (goalId, hours) => {
-    setGoals((prev) =>
-      prev.map((goal) =>
-        goal.id === goalId
-          ? { ...goal, loggedSessions: [...goal.loggedSessions, Number(hours)] }
-          : goal,
-      ),
-    )
-  }
+    const data = await response.json().catch(() => null)
 
-  const createTask = (task) => {
-    const next = {
-      id: crypto.randomUUID(),
-      isCompleted: false,
-      status: 'todo',
-      ...task,
+    if (!response.ok) {
+      throw new Error(data?.message || 'Request failed')
     }
+
+    return data
+  }
+
+  useEffect(() => {
+    if (!user?.id || !token) {
+      setTimetableSlots([])
+      setGoals([])
+      setTasks([])
+      return
+    }
+
+    let isMounted = true
+
+    const loadPlannerData = async () => {
+      try {
+        const [slotsData, goalsData, tasksData] = await Promise.all([
+          request('/timetable'),
+          request('/goals'),
+          request('/tasks'),
+        ])
+
+        if (!isMounted) {
+          return
+        }
+
+        setTimetableSlots((slotsData || []).map(normalizeSlot))
+        setGoals((goalsData || []).map(normalizeGoal))
+        setTasks((tasksData || []).map((task) => normalizeTask(task)))
+      } catch (error) {
+        if (isMounted) {
+          setTimetableSlots([])
+          setGoals([])
+          setTasks([])
+        }
+      }
+    }
+
+    loadPlannerData()
+
+    return () => {
+      isMounted = false
+    }
+  }, [user?.id, token])
+
+  const addSlot = async (slot) => {
+    if (!token) {
+      return null
+    }
+
+    const created = await request('/timetable', {
+      method: 'POST',
+      body: JSON.stringify(slot),
+    })
+
+    const next = normalizeSlot(created)
+    setTimetableSlots((prev) => [next, ...prev])
+    return next
+  }
+
+  const updateSlot = async (slotId, updates) => {
+    if (!token) {
+      return null
+    }
+
+    const updated = await request(`/timetable/${slotId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+
+    const next = normalizeSlot(updated)
+    setTimetableSlots((prev) => prev.map((slot) => (slot.id === slotId ? next : slot)))
+    return next
+  }
+
+  const deleteSlot = async (slotId) => {
+    if (!token) {
+      return null
+    }
+
+    await request(`/timetable/${slotId}`, { method: 'DELETE' })
+    setTimetableSlots((prev) => prev.filter((slot) => slot.id !== slotId))
+    return slotId
+  }
+
+  const addGoal = async (subject, targetHours) => {
+    if (!token) {
+      return null
+    }
+
+    const created = await request('/goals', {
+      method: 'POST',
+      body: JSON.stringify({ subject, targetHours: Number(targetHours) }),
+    })
+
+    const next = normalizeGoal(created)
+    setGoals((prev) => [next, ...prev])
+    return next
+  }
+
+  const logGoalSession = async (goalId, hours) => {
+    if (!token) {
+      return null
+    }
+
+    const updated = await request(`/goals/${goalId}/log`, {
+      method: 'POST',
+      body: JSON.stringify({ durationHours: Number(hours) }),
+    })
+
+    const next = normalizeGoal(updated)
+    setGoals((prev) => prev.map((goal) => (goal.id === goalId ? next : goal)))
+    return next
+  }
+
+  const createTask = async (task) => {
+    if (!token) {
+      return null
+    }
+
+    const payload = {
+      title: task.title,
+      subject: task.subject,
+      dueDate: task.dueDate,
+    }
+
+    const created = await request('/tasks', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+
+    const next = normalizeTask(created, {
+      status: task.status || 'todo',
+      priority: task.priority || 'medium',
+    })
 
     setTasks((prev) => [next, ...prev])
     return next
   }
 
-  const updateTask = (taskId, updates) => {
-    setTasks((prev) =>
-      prev.map((task) => {
-        if (task.id !== taskId) {
-          return task
-        }
+  const updateTask = async (taskId, updates) => {
+    if (!token) {
+      return null
+    }
 
-        const nextTask = { ...task, ...updates }
+    const existing = tasks.find((task) => task.id === taskId)
+    const isCompleted =
+      typeof updates.isCompleted === 'boolean'
+        ? updates.isCompleted
+        : updates.status
+          ? updates.status === 'done'
+          : existing?.isCompleted
 
-        if (typeof updates.isCompleted === 'boolean') {
-          nextTask.status = updates.isCompleted ? 'done' : task.status === 'done' ? 'todo' : task.status
-        }
+    const payload = {
+      title: updates.title,
+      subject: updates.subject,
+      dueDate: updates.dueDate,
+      isCompleted,
+    }
 
-        if (updates.status) {
-          nextTask.isCompleted = updates.status === 'done'
-        }
+    const updated = await request(`/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
 
-        return nextTask
-      }),
-    )
+    const next = normalizeTask(updated, {
+      status: updates.status || existing?.status,
+      priority: updates.priority || existing?.priority,
+    })
+
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? next : task)))
+    return next
   }
 
-  const deleteTask = (taskId) => {
+  const deleteTask = async (taskId) => {
+    if (!token) {
+      return null
+    }
+
+    await request(`/tasks/${taskId}`, { method: 'DELETE' })
     setTasks((prev) => prev.filter((task) => task.id !== taskId))
+    return taskId
   }
 
   const stats = useMemo(() => {
@@ -217,7 +332,7 @@ export function PlannerProvider({ children }) {
     () => ({
       subjectPalette,
       timetableSlots,
-      goals: goals.map((goal) => ({ ...goal, loggedHours: getLoggedHours(goal) })),
+      goals,
       tasks,
       addSlot,
       updateSlot,

@@ -27,6 +27,11 @@ const timetableSlotSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    location: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     color: {
       type: String,
       default: '#2563eb',

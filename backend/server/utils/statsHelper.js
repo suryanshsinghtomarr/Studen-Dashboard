@@ -21,13 +21,15 @@ export const completionRatePerSubject = (tasks = []) => {
   const grouped = {}
 
   for (const task of tasks) {
+    const isDone = task.status ? task.status === 'done' : task.isCompleted
+
     if (!grouped[task.subject]) {
       grouped[task.subject] = { total: 0, completed: 0 }
     }
 
     grouped[task.subject].total += 1
 
-    if (task.isCompleted) {
+    if (isDone) {
       grouped[task.subject].completed += 1
     }
   }

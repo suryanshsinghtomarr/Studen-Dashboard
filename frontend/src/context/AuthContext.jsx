@@ -1,100 +1,81 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 
+const API_BASE_URL = 'https://student-dashboard-backend-scvs.onrender.com/api'
+
 const AuthContext = createContext(null)
-const ACCOUNTS_KEY = 'planner_accounts'
 const SESSION_KEY = 'planner_user'
+const TOKEN_KEY = 'token'
 
-const getInitialUser = () => {
+const getInitialSession = () => {
   const rawUser = localStorage.getItem(SESSION_KEY)
-  return rawUser ? JSON.parse(rawUser) : null
-}
-
-const getStoredAccounts = () => {
-  const rawAccounts = localStorage.getItem(ACCOUNTS_KEY)
-  return rawAccounts ? JSON.parse(rawAccounts) : []
-}
-
-const persistAccounts = (accounts) => {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
+  const rawToken = localStorage.getItem(TOKEN_KEY)
+  return {
+    user: rawUser ? JSON.parse(rawUser) : null,
+    token: rawToken || '',
+  }
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(getInitialUser)
+  const initialSession = getInitialSession()
+  const [user, setUser] = useState(initialSession.user)
+  const [token, setToken] = useState(initialSession.token)
 
   const login = async (email, password) => {
-    const normalizedEmail = email.trim().toLowerCase()
-    const accounts = getStoredAccounts()
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
 
-    const matchedAccount = accounts.find(
-      (account) =>
-        account.email.toLowerCase() === normalizedEmail &&
-        account.password === password,
-    )
+    const data = await response.json()
 
-    if (!matchedAccount) {
-      throw new Error('Account not found or password is incorrect')
+    if (!response.ok) {
+      throw new Error(data.message || 'Login failed')
     }
 
-    const nextUser = {
-      id: matchedAccount.id,
-      name: matchedAccount.name,
-      email: matchedAccount.email,
-    }
-
-    localStorage.setItem(SESSION_KEY, JSON.stringify(nextUser))
-    setUser(nextUser)
-
-    return { user: nextUser }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data.user))
+    localStorage.setItem(TOKEN_KEY, data.token)
+    setUser(data.user)
+    setToken(data.token)
+    return data
   }
 
   const register = async (name, email, password) => {
-    const trimmedName = name.trim()
-    const normalizedEmail = email.trim().toLowerCase()
-    const accounts = getStoredAccounts()
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    })
 
-    const accountExists = accounts.some(
-      (account) => account.email.toLowerCase() === normalizedEmail,
-    )
+    const data = await response.json()
 
-    if (accountExists) {
-      throw new Error('Email is already registered')
+    if (!response.ok) {
+      throw new Error(data.message || 'Registration failed')
     }
 
-    const nextAccount = {
-      id: crypto.randomUUID(),
-      name: trimmedName,
-      email: normalizedEmail,
-      password,
-    }
-
-    const nextAccounts = [...accounts, nextAccount]
-    persistAccounts(nextAccounts)
-
-    const nextUser = {
-      id: nextAccount.id,
-      name: nextAccount.name,
-      email: nextAccount.email,
-    }
-
-    localStorage.setItem(SESSION_KEY, JSON.stringify(nextUser))
-    setUser(nextUser)
-
-    return { user: nextUser }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data.user))
+    localStorage.setItem(TOKEN_KEY, data.token)
+    setUser(data.user)
+    setToken(data.token)
+    return data
   }
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY)
+    localStorage.removeItem(TOKEN_KEY)
     setUser(null)
+    setToken('')
   }
 
   const value = useMemo(
     () => ({
       user,
+      token,
       login,
       register,
       logout,
     }),
-    [user],
+    [user, token],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

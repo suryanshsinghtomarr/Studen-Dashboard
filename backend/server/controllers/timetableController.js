@@ -12,7 +12,7 @@ export const getSlots = async (req, res) => {
 
 export const addSlot = async (req, res) => {
   try {
-    const { subject, day, startTime, endTime, color } = req.body
+    const { subject, day, startTime, endTime, color, location } = req.body
 
     if (!subject || !day || !startTime || !endTime) {
       return res.status(400).json({ message: 'subject, day, startTime and endTime are required' })
@@ -35,6 +35,7 @@ export const addSlot = async (req, res) => {
       day,
       startTime,
       endTime,
+      location,
       color,
     })
 
@@ -47,7 +48,7 @@ export const addSlot = async (req, res) => {
 export const updateSlot = async (req, res) => {
   try {
     const { id } = req.params
-    const { subject, day, startTime, endTime, color } = req.body
+    const { subject, day, startTime, endTime, color, location } = req.body
 
     const existingSlot = await TimetableSlot.findOne({ _id: id, userId: req.user.id })
 
@@ -75,6 +76,7 @@ export const updateSlot = async (req, res) => {
     existingSlot.day = nextDay
     existingSlot.startTime = nextStartTime
     existingSlot.endTime = nextEndTime
+    existingSlot.location = location ?? existingSlot.location
     existingSlot.color = color ?? existingSlot.color
 
     await existingSlot.save()

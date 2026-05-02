@@ -46,7 +46,7 @@ export const getTasks = async (req, res) => {
 
 export const createTask = async (req, res) => {
   try {
-    const { title, subject, dueDate } = req.body
+    const { title, subject, dueDate, priority, status } = req.body
 
     if (!title || !subject || !dueDate) {
       return res
@@ -59,6 +59,8 @@ export const createTask = async (req, res) => {
       title,
       subject,
       dueDate,
+      priority,
+      status,
     })
 
     return res.status(201).json(task)
@@ -70,7 +72,7 @@ export const createTask = async (req, res) => {
 export const updateTask = async (req, res) => {
   try {
     const { id } = req.params
-    const { title, subject, dueDate, isCompleted } = req.body
+    const { title, subject, dueDate, isCompleted, priority, status } = req.body
 
     const task = await Task.findOne({ _id: id, userId: req.user.id })
 
@@ -81,9 +83,15 @@ export const updateTask = async (req, res) => {
     task.title = title ?? task.title
     task.subject = subject ?? task.subject
     task.dueDate = dueDate ?? task.dueDate
+    task.priority = priority ?? task.priority
+    task.status = status ?? task.status
 
     if (typeof isCompleted === 'boolean') {
       task.isCompleted = isCompleted
+    }
+
+    if (task.isCompleted) {
+      task.status = 'done'
     }
 
     await task.save()

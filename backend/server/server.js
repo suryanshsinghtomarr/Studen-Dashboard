@@ -14,9 +14,26 @@ connectDB()
 
 const app = express()
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  process.env.FRONTEND_ORIGIN,
+].filter(Boolean)
+
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true)
+      }
+
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)
+
+      return isAllowed
+        ? callback(null, true)
+        : callback(new Error('Not allowed by CORS'))
+    },
     credentials: true,
   }),
 )
